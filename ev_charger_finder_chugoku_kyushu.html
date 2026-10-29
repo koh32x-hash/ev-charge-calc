@@ -1,0 +1,946 @@
+
+<!-- マニフェストファイルの指定 -->
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#ffffff">
+
+<!-- サービスワーカーの登録スクリプト -->
+<script>
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('sw.js')
+      .then(() => console.log('Service Worker Registered'))
+      .catch((err) => console.error('Service Worker Error', err));
+  }
+</script>
+
+
+
+
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>EV急速充電器スペック検索＆ナビ (中国・九州強化版)</title>
+  <style>
+    :root {
+      --bg: #0f172a;
+      --card: #1e293b;
+      --card-hover: #263349;
+      --text: #f8fafc;
+      --text-sub: #94a3b8;
+      --border: #334155;
+      --primary: #3b82f6;
+      --primary-dark: #1d4ed8;
+      --ultra: #ef4444;   /* 90kW+ : Red/Orange */
+      --fast: #f59e0b;    /* 50kW+ : Amber */
+      --normal: #10b981;  /* <50kW : Green */
+      --nav-btn: #10b981;
+      --radius: 12px;
+    }
+    @media (prefers-color-scheme: light) {
+      :root {
+        --bg: #f1f5f9;
+        --card: #ffffff;
+        --card-hover: #f8fafc;
+        --text: #0f172a;
+        --text-sub: #64748b;
+        --border: #e2e8f0;
+      }
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.45;
+      padding-bottom: 60px;
+    }
+    header {
+      background: var(--card);
+      border-bottom: 1px solid var(--border);
+      padding: 12px 16px;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+    }
+    .header-top {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+    .app-title {
+      font-size: 1.1rem;
+      font-weight: 800;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .gps-status {
+      font-size: 0.78rem;
+      color: var(--text-sub);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .container {
+      max-width: 960px;
+      margin: 14px auto;
+      padding: 0 12px;
+    }
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 14px;
+      margin-bottom: 12px;
+    }
+    /* Controls & Filters */
+    .loc-bar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-bottom: 12px;
+      align-items: center;
+    }
+    .btn {
+      background: var(--card);
+      color: var(--text);
+      border: 1px solid var(--border);
+      padding: 8px 12px;
+      border-radius: 8px;
+      font-size: 0.85rem;
+      font-weight: 600;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      transition: all 0.15s;
+    }
+    .btn:hover { border-color: var(--primary); }
+    .btn-gps {
+      background: var(--primary);
+      color: #fff;
+      border-color: var(--primary);
+    }
+    select, input[type="text"], input[type="number"] {
+      background: var(--bg);
+      color: var(--text);
+      border: 1px solid var(--border);
+      padding: 8px 10px;
+      border-radius: 8px;
+      font-size: 0.88rem;
+    }
+    .filter-section {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .chip-group {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      align-items: center;
+    }
+    .chip-label {
+      font-size: 0.75rem;
+      color: var(--text-sub);
+      font-weight: 700;
+      min-width: 62px;
+    }
+    .chip {
+      padding: 5px 11px;
+      border-radius: 999px;
+      border: 1px solid var(--border);
+      background: var(--bg);
+      color: var(--text-sub);
+      font-size: 0.8rem;
+      font-weight: 600;
+      cursor: pointer;
+      user-select: none;
+    }
+    .chip.active {
+      background: var(--primary);
+      color: #fff;
+      border-color: var(--primary);
+    }
+    .chip.ultra.active {
+      background: var(--ultra);
+      border-color: var(--ultra);
+    }
+
+    /* Charger List */
+    .results-meta {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin: 10px 4px;
+      font-size: 0.83rem;
+      color: var(--text-sub);
+    }
+    .station-list {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .station-card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      transition: transform 0.1s;
+    }
+    @media (min-width: 640px) {
+      .station-card {
+        flex-direction: row;
+        justify-content: space-between;
+        align-items: center;
+      }
+    }
+    .st-main {
+      flex: 1;
+      min-width: 0;
+    }
+    .st-badges {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      align-items: center;
+      margin-bottom: 6px;
+    }
+    .kw-badge {
+      padding: 3px 9px;
+      border-radius: 6px;
+      font-size: 0.82rem;
+      font-weight: 800;
+      color: #fff;
+    }
+    .kw-ultra { background: var(--ultra); }
+    .kw-fast { background: var(--fast); color: #111; }
+    .kw-normal { background: var(--normal); }
+    .tag-badge {
+      padding: 2px 8px;
+      border-radius: 6px;
+      font-size: 0.74rem;
+      font-weight: 600;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      color: var(--text-sub);
+    }
+    .tag-multi {
+      border-color: #3b82f6;
+      color: #60a5fa;
+    }
+    .st-name {
+      font-size: 1.02rem;
+      font-weight: 700;
+      margin-bottom: 3px;
+    }
+    .st-note {
+      font-size: 0.8rem;
+      color: var(--text-sub);
+    }
+    .st-dist {
+      font-size: 0.92rem;
+      font-weight: 800;
+      color: #60a5fa;
+      margin-left: auto;
+    }
+    .st-actions {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      flex-shrink: 0;
+    }
+    .btn-nav {
+      background: var(--nav-btn);
+      color: #fff;
+      border: none;
+      padding: 10px 16px;
+      border-radius: 10px;
+      font-size: 0.9rem;
+      font-weight: 700;
+      cursor: pointer;
+      text-decoration: none;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      box-shadow: 0 2px 6px rgba(16, 185, 129, 0.3);
+    }
+    .btn-nav:hover { opacity: 0.92; }
+    .btn-sub {
+      background: var(--bg);
+      color: var(--text-sub);
+      border: 1px solid var(--border);
+      padding: 9px 11px;
+      border-radius: 10px;
+      font-size: 0.8rem;
+      text-decoration: none;
+      font-weight: 600;
+      cursor: pointer;
+    }
+
+    /* External Search & Sim */
+    .ext-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 8px;
+      margin-top: 8px;
+    }
+    .sim-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+      gap: 10px;
+      align-items: end;
+    }
+    .sim-box {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 10px;
+      text-align: center;
+    }
+    .sim-val {
+      font-size: 1.15rem;
+      font-weight: 800;
+      color: #60a5fa;
+    }
+    .sim-lbl {
+      font-size: 0.72rem;
+      color: var(--text-sub);
+    }
+    details summary {
+      cursor: pointer;
+      font-weight: 700;
+      font-size: 0.92rem;
+      user-select: none;
+      padding: 4px 0;
+    }
+    .form-row {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+      gap: 8px;
+      margin-top: 10px;
+    }
+    .form-group {
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+    }
+    .form-group label {
+      font-size: 0.75rem;
+      color: var(--text-sub);
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <div class="header-top">
+    <div class="app-title">⚡ EV急速充電器スペック検索＆ナビ <span style="font-size:0.75rem; font-weight:normal; color:var(--text-sub);">中国・九州版</span></div>
+    <div class="gps-status" id="gpsStatus">📍 基準地点: 下関駅周辺 (初期値)</div>
+  </div>
+</header>
+
+<div class="container">
+
+  <!-- 1. 現在地取得・基準エリア切り替え＆フィルタ -->
+  <div class="card">
+    <div class="loc-bar">
+      <button class="btn btn-gps" onclick="getCurrentGPS()">📡 現在地(GPS)を取得して近い順に表示</button>
+      <select id="basePointSelect" onchange="setPresetLocation(this.value)">
+        <option value="">-- または基準エリアを選択 --</option>
+        <option value="33.9502,130.9233,下関駅周辺" selected>山口：下関駅周辺</option>
+        <option value="34.0044,131.1818,山陽小野田・宇部周辺">山口：山陽小野田・宇部</option>
+        <option value="34.1858,131.4706,山口市（県庁・小郡周辺）">山口：山口市・小郡</option>
+        <option value="34.0505,131.5681,防府市周辺">山口：防府市</option>
+        <option value="34.1585,132.1812,岩国・玖珂周辺">山口：岩国・玖珂</option>
+        <option value="34.4393,131.3967,長門・萩周辺">山口：長門・萩</option>
+        <option value="34.3976,132.4753,広島市周辺">広島：広島市周辺</option>
+        <option value="34.6618,133.9350,岡山市周辺">岡山：岡山市周辺</option>
+        <option value="34.5966,132.7845,東広島・福山周辺">広島：東広島・福山</option>
+        <option value="35.4681,133.0485,松江・出雲周辺">島根：松江・出雲</option>
+        <option value="33.8834,130.8752,北九州（小倉・門司）">福岡：北九州（小倉・門司）</option>
+        <option value="33.5897,130.4207,福岡市（博多・天神）">福岡：福岡市（博多・天神）</option>
+        <option value="33.3192,130.5084,久留米・鳥栖周辺">福岡/佐賀：久留米・鳥栖</option>
+        <option value="32.7903,130.6889,熊本市周辺">熊本：熊本市周辺</option>
+        <option value="33.2794,131.5013,別府・大分周辺">大分：別府・大分</option>
+        <option value="32.7503,129.8777,長崎・諫早周辺">長崎：長崎・諫早</option>
+        <option value="31.9111,131.4239,宮崎市周辺">宮崎：宮崎市</option>
+        <option value="31.5966,130.5571,鹿児島市（桜島桟橋周辺）">鹿児島：鹿児島市周辺</option>
+      </select>
+      <input type="text" id="keywordInput" placeholder="🔍 名称・路線・市町村で検索..." oninput="renderStations()" style="flex:1; min-width:180px;">
+    </div>
+
+    <div class="filter-section">
+      <!-- 出力フィルタ -->
+      <div class="chip-group">
+        <span class="chip-label">⚡ 出力指定:</span>
+        <span class="chip active" onclick="setKwFilter(0, this)">すべて</span>
+        <span class="chip ultra" onclick="setKwFilter(90, this)">🔥 90kW〜150kW (超急速)</span>
+        <span class="chip" onclick="setKwFilter(50, this)">50kW以上</span>
+        <span class="chip" onclick="setKwFilter(40, this)">40kW以上</span>
+      </div>
+
+      <!-- 条件フィルタ -->
+      <div class="chip-group">
+        <span class="chip-label">🛠️ 条件絞込:</span>
+        <span class="chip" id="chkMulti" onclick="toggleFlag('multi')">🔌 複数口 (2口以上)</span>
+        <span class="chip" id="chk24h" onclick="toggleFlag('is24h')">🌙 24時間営業</span>
+        <span class="chip" id="chkFav" onclick="toggleFlag('fav')">⭐ お気に入りのみ</span>
+      </div>
+
+      <!-- 施設種別フィルタ -->
+      <div class="chip-group">
+        <span class="chip-label">🏢 施設種別:</span>
+        <span class="chip active" onclick="setCatFilter('all', this)">すべて</span>
+        <span class="chip" onclick="setCatFilter('sa', this)">🛣️ 高速SA/PA</span>
+        <span class="chip" onclick="setCatFilter('nissan', this)">🚗 日産ディーラー</span>
+        <span class="chip" onclick="setCatFilter('michi', this)">🍓 道の駅・商業・公的</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- 2. リーフe+ (62kWh) 急速充電シミュレーター (折りたたみ) -->
+  <div class="card">
+    <details>
+      <summary>🔋 リーフe+ (62kWh) 充電時間・回復SOCシミュレーターを開く</summary>
+      <div style="margin-top:12px;">
+        <div class="sim-grid">
+          <div class="form-group">
+            <label>現在SOC (%)</label>
+            <input type="number" id="simCurSoc" value="25" min="0" max="95" oninput="calcChargeSim()">
+          </div>
+          <div class="form-group">
+            <label>充電器の出力 (kW)</label>
+            <select id="simKw" onchange="calcChargeSim()">
+              <option value="90" selected>90kW / 100kW以上 (e+最大約70〜75kW実効)</option>
+              <option value="50">50kW器 (実効約45kW)</option>
+              <option value="44">44kW器 (実効約40kW)</option>
+              <option value="30">30kW器 (実効約28kW)</option>
+              <option value="20">20kW器 (実効約19kW)</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>充電時間 (分)</label>
+            <select id="simMin" onchange="calcChargeSim()">
+              <option value="15">15分 (ちょい足し)</option>
+              <option value="20">20分</option>
+              <option value="30" selected>30分 (1回フル)</option>
+            </select>
+          </div>
+          <div class="sim-box">
+            <div class="sim-val" id="simResultSoc">約 78%</div>
+            <div class="sim-lbl" id="simResultKwh">+約30.5kWh (航続+約198km)</div>
+          </div>
+        </div>
+      </div>
+    </details>
+  </div>
+
+  <!-- 3. 検索結果リスト -->
+  <div class="results-meta">
+    <span id="resultCount">該当: 0件 (距離順)</span>
+    <span style="font-size:0.75rem;">「Googleナビ」でアプリの経路案内を直接起動</span>
+  </div>
+
+  <div class="station-list" id="stationList"></div>
+
+  <!-- 4. 現在地周辺の外部マップ直接検索＆マイスポット登録 -->
+  <div class="card" style="margin-top:16px;">
+    <div style="font-weight:700; font-size:0.92rem; margin-bottom:6px;">🌐 現在地周辺をGoogleマップ / 外部DBで直接検索</div>
+    <div style="font-size:0.78rem; color:var(--text-sub); margin-bottom:8px;">
+      プリセットにない最新の充電器やコンビニ充電器を探す場合、現在の基準座標を使って直接マップ検索を開けます。
+    </div>
+    <div class="ext-grid">
+      <button class="btn" onclick="openGoogleSearch('EV急速充電器 CHAdeMO')">🗺️ Googleマップで「周辺の急速充電器」検索</button>
+      <button class="btn" onclick="openGoogleSearch('日産 急速充電器')">🚗 Googleマップで「周辺の日産」検索</button>
+      <button class="btn" onclick="openGoogleSearch('道の駅 急速充電器')">🍓 Googleマップで「周辺の道の駅」検索</button>
+      <button class="btn" onclick="fetchOpenChargeMap()">📡 OpenChargeMapから周辺スポットを追加取得</button>
+    </div>
+  </div>
+
+  <!-- 5. マイ充電器スポット追加・データ管理 -->
+  <div class="card">
+    <details>
+      <summary>➕ マイ定番スポットの新規追加・バックアップ管理</summary>
+      <div class="form-row">
+        <div class="form-group">
+          <label>スポット名称</label>
+          <input type="text" id="addName" placeholder="例：〇〇日産 △△店">
+        </div>
+        <div class="form-group">
+          <label>エリア・都道府県</label>
+          <input type="text" id="addArea" placeholder="例：山口県下関市">
+        </div>
+        <div class="form-group">
+          <label>最大出力 (kW)</label>
+          <input type="number" id="addKw" value="90" step="10">
+        </div>
+        <div class="form-group">
+          <label>口数 (ストール数)</label>
+          <input type="number" id="addPorts" value="2" min="1">
+        </div>
+        <div class="form-group">
+          <label>施設種別</label>
+          <select id="addCat">
+            <option value="nissan">日産ディーラー</option>
+            <option value="sa">高速SA/PA</option>
+            <option value="michi">道の駅・商業・公的</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>緯度・経度 (空欄なら現在の基準座標)</label>
+          <input type="text" id="addLatLon" placeholder="例: 33.9502, 130.9233">
+        </div>
+        <div class="form-group" style="grid-column: 1 / -1;">
+          <label>メモ (営業時間・屋根・周辺コンビニ等)</label>
+          <input type="text" id="addNote" placeholder="例：24時間・90kW×2口・隣にセブンイレブンあり">
+        </div>
+      </div>
+      <div style="display:flex; gap:8px; margin-top:12px; flex-wrap:wrap;">
+        <button class="btn btn-gps" onclick="addCustomStation()">＋ スポットを保存</button>
+        <button class="btn" onclick="exportStationsJSON()" style="margin-left:auto;">💾 JSON保存</button>
+        <button class="btn" onclick="document.getElementById('importJson').click()">📂 JSON読込</button>
+        <input type="file" id="importJson" style="display:none" accept=".json" onchange="importStationsJSON(event)">
+      </div>
+    </details>
+  </div>
+
+</div>
+
+<script>
+  const STORAGE_KEY = 'ev_charger_chugoku_kyushu_v1';
+
+  // 中国地方（特に山口県・山陽道・中国道・国道2号/9号）＆九州地方の主要急速充電スポット初期データ
+  const INITIAL_STATIONS = [
+    // --- 山口県（下関・山陽小野田・宇部・美祢・長門・萩） ---
+    { id: 'ym01', name: '山口日産 新下関店', area: '山口県下関市', cat: 'nissan', kw: 90, ports: 2, is24h: true, lat: 34.0041, lon: 130.9497, note: '県道259号沿い・新下関駅近く。高出力90kW対応' },
+    { id: 'ym02', name: '日産プリンス山口 下関幡生店', area: '山口県下関市', cat: 'nissan', kw: 90, ports: 1, is24h: true, lat: 33.9806, lon: 130.9255, note: '幡生駅近く・下関市街地アクセス良好' },
+    { id: 'ym03', name: '中国道 王司PA (上り・広島方面)', area: '山口県下関市', cat: 'sa', kw: 90, ports: 1, is24h: true, lat: 34.0457, lon: 131.0185, note: '関門橋通過後の最初のPA。高出力器あり' },
+    { id: 'ym04', name: '中国道 王司PA (下り・九州方面)', area: '山口県下関市', cat: 'sa', kw: 90, ports: 1, is24h: true, lat: 34.0445, lon: 131.0168, note: '九州入り前の急速充電に便利' },
+    { id: 'ym05', name: '中国道 壇之浦PA (下り・九州方面)', area: '山口県下関市', cat: 'sa', kw: 90, ports: 1, is24h: true, lat: 33.9634, lon: 130.9571, note: '関門橋の展望あり・eMP高出力対応' },
+    { id: 'ym06', name: '道の駅 きくがわ', area: '山口県下関市', cat: 'michi', kw: 50, ports: 1, is24h: true, lat: 34.1158, lon: 131.0183, note: '国道491号・小月IC近く' },
+    { id: 'ym07', name: '道の駅 蛍街道西ノ市', area: '山口県下関市', cat: 'michi', kw: 50, ports: 1, is24h: true, lat: 34.1979, lon: 131.0442, note: '日帰り温泉（蛍の湯）併設' },
+    { id: 'ym08', name: '道の駅 北浦街道 豊北', area: '山口県下関市', cat: 'michi', kw: 50, ports: 1, is24h: true, lat: 34.3168, lon: 130.8924, note: '角島大橋近くの人気道の駅・24時間利用可' },
+    { id: 'ym09', name: '山口日産 小野田店', area: '山口県山陽小野田市', cat: 'nissan', kw: 90, ports: 2, is24h: true, lat: 34.0068, lon: 131.1835, note: '山陽小野田市街・高出力複数口' },
+    { id: 'ym10', name: '山口日産 宇部空港店 / 宇部店', area: '山口県宇部市', cat: 'nissan', kw: 90, ports: 2, is24h: true, lat: 33.9435, lon: 131.2698, note: '国道190号沿い・宇部エリアの90kW拠点' },
+    { id: 'ym11', name: '日産プリンス山口 宇部空港店', area: '山口県宇部市', cat: 'nissan', kw: 90, ports: 1, is24h: true, lat: 33.9388, lon: 131.2721, note: '山口宇部空港近く・24時間営業' },
+    { id: 'ym12', name: '中国道 美東SA (上り・広島方面)', area: '山口県美祢市', cat: 'sa', kw: 90, ports: 2, is24h: true, lat: 34.1866, lon: 131.3341, note: '90kWマルチ・2口対応の重要拠点' },
+    { id: 'ym13', name: '中国道 美東SA (下り・下関方面)', area: '山口県美祢市', cat: 'sa', kw: 90, ports: 2, is24h: true, lat: 34.1843, lon: 131.3312, note: '90kWマルチ・2口対応' },
+    { id: 'ym14', name: '道の駅 みとう', area: '山口県美祢市', cat: 'michi', kw: 50, ports: 1, is24h: true, lat: 34.1628, lon: 131.3489, note: '国道435号・小郡萩道路絵堂IC方面アクセス良' },
+    { id: 'ym15', name: '道の駅 センザキッチン', area: '山口県長門市', cat: 'michi', kw: 50, ports: 1, is24h: true, lat: 34.3821, lon: 131.1982, note: '仙崎・長門観光の拠点' },
+    { id: 'ym16', name: '道の駅 萩往還', area: '山口県萩市', cat: 'michi', kw: 50, ports: 1, is24h: true, lat: 34.3792, lon: 131.4045, note: '萩市街入口（明木ICすぐ）・24時間' },
+
+    // --- 山口県（山口市・防府・周南・下松・光・岩国） ---
+    { id: 'ym17', name: '山口日産 小郡インター店', area: '山口県山口市', cat: 'nissan', kw: 90, ports: 2, is24h: true, lat: 34.1062, lon: 131.4015, note: '国道9号・小郡ICすぐ。90kW×2口で非常に使いやすい' },
+    { id: 'ym18', name: '山口日産 大内店 / 湯田店', area: '山口県山口市', cat: 'nissan', kw: 90, ports: 2, is24h: true, lat: 34.1565, lon: 131.4912, note: '山口市街地・大内御堀エリアの高出力拠点' },
+    { id: 'ym19', name: '日産プリンス山口 山口大内店', area: '山口県山口市', cat: 'nissan', kw: 90, ports: 1, is24h: true, lat: 34.1539, lon: 131.4951, note: '県道21号沿い・周辺飲食店多数' },
+    { id: 'ym20', name: '道の駅 きららあじす', area: '山口県山口市', cat: 'michi', kw: 50, ports: 1, is24h: true, lat: 34.0112, lon: 131.3638, note: '阿知須・山口きらら博記念公園近く' },
+    { id: 'ym21', name: '道の駅 あいお', area: '山口県山口市', cat: 'michi', kw: 50, ports: 1, is24h: true, lat: 34.0163, lon: 131.4385, note: '国道2号バイパス小郡〜防府間の休憩に' },
+    { id: 'ym22', name: '道の駅 仁保の郷', area: '山口県山口市', cat: 'michi', kw: 50, ports: 1, is24h: true, lat: 34.2192, lon: 131.5521, note: '国道376号沿い' },
+    { id: 'ym23', name: '山陽道 佐波川SA (上り・広島方面)', area: '山口県防府市', cat: 'sa', kw: 90, ports: 2, is24h: true, lat: 34.0592, lon: 131.6225, note: '山陽道防府エリア・コンビニ併設' },
+    { id: 'ym24', name: '山陽道 佐波川SA (下り・九州方面)', area: '山口県防府市', cat: 'sa', kw: 90, ports: 2, is24h: true, lat: 34.0581, lon: 131.6198, note: '山陽道下り・高出力複数口' },
+    { id: 'ym25', name: '山口日産 防府店', area: '山口県防府市', cat: 'nissan', kw: 90, ports: 2, is24h: true, lat: 34.0558, lon: 131.5512, note: '旧国道2号沿い・90kW対応' },
+    { id: 'ym26', name: '道の駅 潮彩市場防府', area: '山口県防府市', cat: 'michi', kw: 50, ports: 1, is24h: true, lat: 34.0275, lon: 131.5814, note: '三田尻港近く' },
+    { id: 'ym27', name: '山口日産 周南久米店', area: '山口県周南市', cat: 'nissan', kw: 90, ports: 2, is24h: true, lat: 34.0412, lon: 131.8495, note: '国道2号沿い・徳山東IC近く。イオンタウン周南隣接' },
+    { id: 'ym28', name: '山陽道 下松SA (上り・広島方面)', area: '山口県下松市', cat: 'sa', kw: 90, ports: 2, is24h: true, lat: 34.0345, lon: 131.8942, note: '90kWマルチ対応・山陽道の定番充電所' },
+    { id: 'ym29', name: '山陽道 下松SA (下り・山口方面)', area: '山口県下松市', cat: 'sa', kw: 90, ports: 2, is24h: true, lat: 34.0329, lon: 131.8961, note: '90kWマルチ対応' },
+    { id: 'ym30', name: '山陽道 玖珂PA (上り/下り)', area: '山口県岩国市', cat: 'sa', kw: 90, ports: 1, is24h: true, lat: 34.0982, lon: 132.0941, note: '岩国IC手前のPA' },
+    { id: 'ym31', name: '山口日産 岩国室の木店', area: '山口県岩国市', cat: 'nissan', kw: 90, ports: 2, is24h: true, lat: 34.1725, lon: 132.2084, note: '国道2号沿い・岩国エリア90kW拠点' },
+
+    // --- 広島・岡山・島根・鳥取（中国地方主要ルート） ---
+    { id: 'cg01', name: '山陽道 宮島SA (上り・岡山方面)', area: '広島県廿日市市', cat: 'sa', kw: 90, ports: 2, is24h: true, lat: 34.3421, lon: 132.3025, note: '90kW複数口・スタバ併設' },
+    { id: 'cg02', name: '山陽道 宮島SA (下り・山口方面)', area: '広島県廿日市市', cat: 'sa', kw: 90, ports: 2, is24h: true, lat: 34.3398, lon: 132.3001, note: '90kW複数口・瀬戸内海展望' },
+    { id: 'cg03', name: '山陽道 小谷SA (上り・岡山方面)', area: '広島県東広島市', cat: 'sa', kw: 90, ports: 3, is24h: true, lat: 34.4391, lon: 132.8362, note: '高出力複数口・アンデルセン併設' },
+    { id: 'cg04', name: '山陽道 小谷SA (下り・広島方面)', area: '広島県東広島市', cat: 'sa', kw: 90, ports: 3, is24h: true, lat: 34.4412, lon: 132.8385, note: '高出力複数口で待ちリスク低' },
+    { id: 'cg05', name: '山陽道 福山SA (上り/下り)', area: '広島県福山市', cat: 'sa', kw: 90, ports: 2, is24h: true, lat: 34.4872, lon: 133.3015, note: '90kW複数口対応' },
+    { id: 'cg06', name: '山陽道 吉備SA (上り/下り)', area: '岡山県岡山市', cat: 'sa', kw: 90, ports: 2, is24h: true, lat: 34.6938, lon: 133.8902, note: '岡山エリアの主要SA・90kW複数口' },
+    { id: 'cg07', name: '中国道 安佐SA (上り/下り)', area: '広島県広島市', cat: 'sa', kw: 90, ports: 1, is24h: true, lat: 34.5042, lon: 132.4215, note: '中国道・浜田道分岐近く' },
+    { id: 'cg08', name: '中国道 七塚原SA (上り/下り)', area: '広島県庄原市', cat: 'sa', kw: 90, ports: 1, is24h: true, lat: 34.8351, lon: 132.9812, note: '三次・庄原エリアの高速充電拠点' },
+    { id: 'cg09', name: '道の駅 ゆうひパーク浜田', area: '島根県浜田市', cat: 'michi', kw: 50, ports: 1, is24h: true, lat: 34.8812, lon: 132.0541, note: '国道9号山陰バイパス直結・日本海展望' },
+    { id: 'cg10', name: '島根日産 松江店 / 出雲店', area: '島根県松江市', cat: 'nissan', kw: 90, ports: 2, is24h: true, lat: 35.4512, lon: 133.0685, note: '山陰エリアの90kW急速充電拠点' },
+    { id: 'cg11', name: '道の駅 キララ多伎', area: '島根県出雲市', cat: 'michi', kw: 50, ports: 1, is24h: true, lat: 35.2801, lon: 132.6345, note: '国道9号沿い・ベーカリー＆海沿いカフェ' },
+
+    // --- 九州地方：福岡県（北九州・福岡・久留米・京築） ---
+    { id: 'ky01', name: '九州道 めかりPA (上り・本州方面)', area: '福岡県北九州市門司区', cat: 'sa', kw: 90, ports: 1, is24h: true, lat: 33.9562, lon: 130.9658, note: '関門橋の真下・九州脱出前の充電に最適' },
+    { id: 'ky02', name: '九州道 吉志PA (上り/下り)', area: '福岡県北九州市門司区', cat: 'sa', kw: 90, ports: 2, is24h: true, lat: 33.8685, lon: 130.9612, note: '新門司IC近く・90kW複数口' },
+    { id: 'ky03', name: '北九州日産 小倉店 / 徳力店', area: '福岡県北九州市小倉北区', cat: 'nissan', kw: 90, ports: 2, is24h: true, lat: 33.8692, lon: 130.8915, note: '小倉市街・国道3号/322号アクセス良・90kW対応' },
+    { id: 'ky04', name: '北九州日産 八幡店 / 陣山店', area: '福岡県北九州市八幡西区', cat: 'nissan', kw: 90, ports: 2, is24h: true, lat: 33.8651, lon: 130.7642, note: '国道3号沿い・90kW×2口' },
+    { id: 'ky05', name: '九州道 古賀SA (上り・北九州方面)', area: '福岡県古賀市', cat: 'sa', kw: 150, ports: 4, is24h: true, lat: 33.7258, lon: 130.4982, note: '超急速150kW/90kWマルチ多数設置の大型SA' },
+    { id: 'ky06', name: '九州道 古賀SA (下り・福岡方面)', area: '福岡県古賀市', cat: 'sa', kw: 150, ports: 4, is24h: true, lat: 33.7215, lon: 130.4921, note: '超急速150kW/90kWマルチ対応' },
+    { id: 'ky07', name: '日産福岡 東那珂店 / 空港店', area: '福岡県福岡市博多区', cat: 'nissan', kw: 90, ports: 2, is24h: true, lat: 33.5712, lon: 130.4452, note: '福岡都市高速・福岡空港近く・90kW対応' },
+    { id: 'ky08', name: '九州道 基山PA (上り・福岡方面)', area: '佐賀県三養基郡基山町', cat: 'sa', kw: 90, ports: 3, is24h: true, lat: 33.4185, lon: 130.5342, note: '九州最大の交通要衝PA・複数口' },
+    { id: 'ky09', name: '九州道 基山PA (下り・熊本/大分方面)', area: '福岡県筑紫野市', cat: 'sa', kw: 90, ports: 3, is24h: true, lat: 33.4215, lon: 130.5331, note: '鳥栖JCT手前・90kW複数口' },
+    { id: 'ky10', name: '九州道 広川SA (上り/下り)', area: '福岡県八女郡広川町', cat: 'sa', kw: 90, ports: 2, is24h: true, lat: 33.2385, lon: 130.5512, note: '久留米〜熊本間の90kW充電拠点' },
+    { id: 'ky11', name: '東九州道 今川PA (上り/下り)', area: '福岡県行橋市', cat: 'sa', kw: 90, ports: 1, is24h: true, lat: 33.7021, lon: 130.9625, note: '北九州〜大分ルートの重要充電スポット' },
+    { id: 'ky12', name: '道の駅 豊前おこしかけ', area: '福岡県豊前市', cat: 'michi', kw: 50, ports: 1, is24h: true, lat: 33.6012, lon: 131.1245, note: '国道10号椎田道路沿い' },
+
+    // --- 九州地方：佐賀・長崎・大分・熊本・宮崎・鹿児島 ---
+    { id: 'ky13', name: '長崎道 金立SA (上り/下り)', area: '佐賀県佐賀市', cat: 'sa', kw: 90, ports: 2, is24h: true, lat: 33.3145, lon: 130.3012, note: '長崎道・佐賀エリアの90kW複数口拠点' },
+    { id: 'ky14', name: '長崎道 大村湾PA (上り/下り)', area: '長崎県東彼杵町', cat: 'sa', kw: 90, ports: 1, is24h: true, lat: 33.0125, lon: 129.9284, note: '大村湾を一望できる絶景PA・高出力対応' },
+    { id: 'ky15', name: '大分道 山田SA (上り/下り)', area: '福岡県朝倉市', cat: 'sa', kw: 90, ports: 2, is24h: true, lat: 33.3812, lon: 130.7641, note: '日田・湯布院・別府方面への90kW拠点' },
+    { id: 'ky16', name: '東九州道 別府湾SA (上り/下り)', area: '大分県別府市', cat: 'sa', kw: 90, ports: 2, is24h: true, lat: 33.3215, lon: 131.4612, note: 'スマートIC併設・90kW対応' },
+    { id: 'ky17', name: '大分日産 大分店 / 羽屋店', area: '大分県大分市', cat: 'nissan', kw: 90, ports: 2, is24h: true, lat: 33.2185, lon: 131.6012, note: '大分市内・国道210号沿い90kW' },
+    { id: 'ky18', name: '九州道 玉名PA / 北熊本SA (上り/下り)', area: '熊本県熊本市北区', cat: 'sa', kw: 90, ports: 2, is24h: true, lat: 32.8842, lon: 130.7125, note: '熊本エリア高速上の90kW拠点' },
+    { id: 'ky19', name: '九州道 宮原SA (上り/下り)', area: '熊本県八代郡氷川町', cat: 'sa', kw: 90, ports: 2, is24h: true, lat: 32.5512, lon: 130.6845, note: '人吉・えびの・鹿児島越え前の重要90kW拠点' },
+    { id: 'ky20', name: '熊本日産 健軍店 / 近見店', area: '熊本県熊本市南区', cat: 'nissan', kw: 90, ports: 2, is24h: true, lat: 32.7685, lon: 130.6912, note: '国道3号沿い・90kW複数口' },
+    { id: 'ky21', name: '宮崎道 山之口SA / 霧島SA', area: '宮崎県都城市', cat: 'sa', kw: 90, ports: 1, is24h: true, lat: 31.8312, lon: 131.1542, note: 'えびのJCT〜宮崎市間の高速充電所' },
+    { id: 'ky22', name: '宮崎日産 宮崎吉村店 / 花ヶ島店', area: '宮崎県宮崎市', cat: 'nissan', kw: 90, ports: 2, is24h: true, lat: 31.9345, lon: 131.4312, note: '宮崎市街・90kW高出力対応' },
+    { id: 'ky23', name: '九州道 桜島SA (上り/下り)', area: '鹿児島県姶良市', cat: 'sa', kw: 90, ports: 2, is24h: true, lat: 31.7245, lon: 130.6185, note: '鹿児島市手前の最終SA・90kW対応' },
+    { id: 'ky24', name: '鹿児島日産 西千石店 / 与次郎店', area: '鹿児島県鹿児島市', cat: 'nissan', kw: 90, ports: 2, is24h: true, lat: 31.5842, lon: 130.5512, note: '鹿児島市街・桜島フェリー乗り場や水族館からも近い90kW拠点' },
+    { id: 'ky25', name: '道の駅 たるみず (湯っ足り館)', area: '鹿児島県垂水市', cat: 'michi', kw: 50, ports: 1, is24h: true, lat: 31.5285, lon: 130.7012, note: '桜島・大隅半島ドライブ定番・足湯＆温泉併設' }
+  ];
+
+  let state = {
+    currentLat: 33.9502,
+    currentLon: 130.9233,
+    currentLabel: '下関駅周辺',
+    minKw: 0,
+    cat: 'all',
+    multiOnly: false,
+    is24hOnly: false,
+    favOnly: false,
+    favorites: [],
+    customStations: []
+  };
+
+  function loadState() {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        state = { ...state, ...parsed };
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  }
+
+  function saveState() {
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({
+        favorites: state.favorites,
+        customStations: state.customStations,
+        currentLat: state.currentLat,
+        currentLon: state.currentLon,
+        currentLabel: state.currentLabel
+      }));
+    } catch (e) {
+      console.error(e);
+    }
+  }
+
+  function init() {
+    loadState();
+    updateGpsLabel();
+    calcChargeSim();
+    renderStations();
+  }
+
+  function updateGpsLabel() {
+    document.getElementById('gpsStatus').textContent = `📍 基準地点: ${state.currentLabel} (${state.currentLat.toFixed(4)}, ${state.currentLon.toFixed(4)})`;
+  }
+
+  // GPS取得
+  function getCurrentGPS() {
+    const statusEl = document.getElementById('gpsStatus');
+    if (!navigator.geolocation) {
+      alert('お使いのブラウザは位置情報に対応していません。');
+      return;
+    }
+    statusEl.textContent = '📡 GPSで現在地を測位中...';
+    navigator.geolocation.getCurrentPosition(
+      pos => {
+        state.currentLat = pos.coords.latitude;
+        state.currentLon = pos.coords.longitude;
+        state.currentLabel = '現在地 (GPS取得)';
+        document.getElementById('basePointSelect').value = '';
+        saveState();
+        updateGpsLabel();
+        renderStations();
+      },
+      err => {
+        alert('現在地の取得に失敗しました。位置情報の許可設定を確認するか、隣のプルダウンから基準エリアを選択してください。');
+        updateGpsLabel();
+      },
+      { enableHighAccuracy: true, timeout: 10000 }
+    );
+  }
+
+  function setPresetLocation(val) {
+    if (!val) return;
+    const parts = val.split(',');
+    state.currentLat = parseFloat(parts[0]);
+    state.currentLon = parseFloat(parts[1]);
+    state.currentLabel = parts[2] || '選択地点';
+    saveState();
+    updateGpsLabel();
+    renderStations();
+  }
+
+  // 2点間の直線距離 (km) - Haversine式
+  function calcDistanceKm(lat1, lon1, lat2, lon2) {
+    const R = 6371;
+    const dLat = (lat2 - lat1) * Math.PI / 180;
+    const dLon = (lon2 - lon1) * Math.PI / 180;
+    const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+              Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+              Math.sin(dLon / 2) * Math.sin(dLon / 2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    return R * c;
+  }
+
+  function setKwFilter(kw, el) {
+    state.minKw = kw;
+    el.parentElement.querySelectorAll('.chip').forEach(c => c.classList.remove('active'));
+    el.classList.add('active');
+    renderStations();
+  }
+
+  function setCatFilter(cat, el) {
+    state.cat = cat;
+    el.parentElement.querySelectorAll('.chip').forEach(c => c.classList.remove('active'));
+    el.classList.add('active');
+    renderStations();
+  }
+
+  function toggleFlag(flag) {
+    if (flag === 'multi') {
+      state.multiOnly = !state.multiOnly;
+      document.getElementById('chkMulti').classList.toggle('active', state.multiOnly);
+    } else if (flag === 'is24h') {
+      state.is24hOnly = !state.is24hOnly;
+      document.getElementById('chk24h').classList.toggle('active', state.is24hOnly);
+    } else if (flag === 'fav') {
+      state.favOnly = !state.favOnly;
+      document.getElementById('chkFav').classList.toggle('active', state.favOnly);
+    }
+    renderStations();
+  }
+
+  function toggleFav(id) {
+    if (state.favorites.includes(id)) {
+      state.favorites = state.favorites.filter(x => x !== id);
+    } else {
+      state.favorites.push(id);
+    }
+    saveState();
+    renderStations();
+  }
+
+  function getAllStations() {
+    return [...state.customStations, ...INITIAL_STATIONS];
+  }
+
+  function renderStations() {
+    const q = document.getElementById('keywordInput').value.trim().toLowerCase();
+    const all = getAllStations();
+
+    const filtered = all.map(st => {
+      const dist = calcDistanceKm(state.currentLat, state.currentLon, st.lat, st.lon);
+      return { ...st, dist };
+    }).filter(st => {
+      if (st.kw < state.minKw) return false;
+      if (state.cat !== 'all' && st.cat !== state.cat) return false;
+      if (state.multiOnly && st.ports < 2) return false;
+      if (state.is24hOnly && !st.is24h) return false;
+      if (state.favOnly && !state.favorites.includes(st.id)) return false;
+      if (q) {
+        const text = `${st.name} ${st.area} ${st.note}`.toLowerCase();
+        if (!text.includes(q)) return false;
+      }
+      return true;
+    }).sort((a, b) => a.dist - b.dist);
+
+    document.getElementById('resultCount').textContent = `該当: ${filtered.length}件 (基準地点から近い順)`;
+
+    const listEl = document.getElementById('stationList');
+    listEl.innerHTML = '';
+
+    if (filtered.length === 0) {
+      listEl.innerHTML = `<div class="card" style="text-align:center; color:var(--text-sub);">条件に一致する充電スポットがありません。フィルタを緩めるか、下の「Googleマップで直接検索」をお試しください。</div>`;
+      return;
+    }
+
+    const catLabel = { sa: '🛣️ 高速SA/PA', nissan: '🚗 日産', michi: '🍓 道の駅・他' };
+
+    filtered.forEach(st => {
+      const isFav = state.favorites.includes(st.id);
+      const kwClass = st.kw >= 90 ? 'kw-ultra' : (st.kw >= 50 ? 'kw-fast' : 'kw-normal');
+      // Googleマップの経路案内URLスキーム（座標＋名称検索のハイブリッドで確実にピン立て）
+      const navUrl = `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(st.name + ' ' + st.area)}&travelmode=driving`;
+      const mapUrl = `https://www.google.com/maps/search/?api=1&query=${st.lat},${st.lon}`;
+
+      const card = document.createElement('div');
+      card.className = 'station-card';
+      card.innerHTML = `
+        <div class="st-main">
+          <div class="st-badges">
+            <span class="kw-badge ${kwClass}">⚡ 最大 ${st.kw}kW</span>
+            <span class="tag-badge ${st.ports >= 2 ? 'tag-multi' : ''}">🔌 ${st.ports}口</span>
+            <span class="tag-badge">${catLabel[st.cat] || '充電所'}</span>
+            ${st.is24h ? '<span class="tag-badge">🌙 24h</span>' : ''}
+            <span class="tag-badge">${escapeHtml(st.area)}</span>
+            <span class="st-dist">📍 約 ${st.dist.toFixed(1)} km</span>
+          </div>
+          <div class="st-name">${escapeHtml(st.name)}</div>
+          <div class="st-note">${escapeHtml(st.note || '')}</div>
+        </div>
+        <div class="st-actions">
+          <button class="btn-sub" onclick="toggleFav('${st.id}')" title="お気に入り登録">${isFav ? '⭐' : '☆'}</button>
+          <a class="btn-sub" href="${mapUrl}" target="_blank" rel="noopener">地図確認</a>
+          <a class="btn-nav" href="${navUrl}" target="_blank" rel="noopener">🚗 Googleナビ開始</a>
+        </div>
+      `;
+      listEl.appendChild(card);
+    });
+  }
+
+  // リーフe+ (実効容量 約56kWhとして計算) 充電シミュレーター
+  function calcChargeSim() {
+    const curSoc = parseFloat(document.getElementById('simCurSoc').value) || 20;
+    const kwSpec = parseFloat(document.getElementById('simKw').value) || 90;
+    const mins = parseFloat(document.getElementById('simMin').value) || 30;
+
+    // リーフe+ (400V系・最大200A制限により90kW器でも実効ピークは70〜73kW前後、高SOC域でテーパリング)
+    let avgKw = 42;
+    if (kwSpec >= 90) avgKw = curSoc < 50 ? 64 : 50;
+    else if (kwSpec >= 50) avgKw = 44;
+    else if (kwSpec >= 40) avgKw = 38;
+    else if (kwSpec >= 30) avgKw = 27;
+    else avgKw = 18;
+
+    const addedKwh = avgKw * (mins / 60);
+    const usableCap = 56.0; // e+ 実効容量目安
+    const addedSoc = (addedKwh / usableCap) * 100;
+    const finalSoc = Math.min(98, Math.round(curSoc + addedSoc));
+    const actualAddedKwh = ((finalSoc - curSoc) / 100) * usableCap;
+    const addedRangeKm = Math.round(actualAddedKwh * 6.5); // 電費 6.5km/kWh 換算
+
+    document.getElementById('simResultSoc').textContent = `約 ${finalSoc}% まで回復`;
+    document.getElementById('simResultKwh').textContent = `+約${actualAddedKwh.toFixed(1)}kWh (航続 +約${addedRangeKm}km / 電費6.5換算)`;
+  }
+
+  // Googleマップの周辺検索を直接開く
+  function openGoogleSearch(keyword) {
+    const url = `https://www.google.com/maps/search/${encodeURIComponent(keyword)}/@${state.currentLat},${state.currentLon},13z`;
+    window.open(url, '_blank');
+  }
+
+  // OpenChargeMap パブリックAPIから周辺データを補完取得
+  async function fetchOpenChargeMap() {
+    try {
+      const url = `https://api.openchargemap.io/v3/poi/?output=json&countrycode=JP&latitude=${state.currentLat}&longitude=${state.currentLon}&distance=40&distanceunit=KM&maxresults=30`;
+      const res = await fetch(url);
+      if (!res.ok) throw new Error('API request failed');
+      const data = await res.json();
+      let added = 0;
+      data.forEach(item => {
+        if (!item.AddressInfo) return;
+        const conns = item.Connections || [];
+        let maxKw = 50;
+        conns.forEach(c => { if (c.PowerKW && c.PowerKW > maxKw) maxKw = c.PowerKW; });
+        const id = 'ocm_' + item.ID;
+        const exists = getAllStations().some(s => s.id === id);
+        if (!exists) {
+          state.customStations.push({
+            id,
+            name: item.AddressInfo.Title || '充電スポット',
+            area: item.AddressInfo.Town || item.AddressInfo.StateOrProvince || '周辺エリア',
+            cat: 'michi',
+            kw: maxKw,
+            ports: conns.length || 1,
+            is24h: true,
+            lat: item.AddressInfo.Latitude,
+            lon: item.AddressInfo.Longitude,
+            note: 'OpenChargeMap取得スポット'
+          });
+          added++;
+        }
+      });
+      saveState();
+      renderStations();
+      alert(`周辺40km圏内から新たに ${added} 件のスポットデータを読み込みました。`);
+    } catch (e) {
+      alert('外部データの取得に失敗したか、オフライン環境です。Googleマップ直接検索をご利用ください。');
+    }
+  }
+
+  function addCustomStation() {
+    const name = document.getElementById('addName').value.trim();
+    if (!name) { alert('スポット名称を入力してください。'); return; }
+    const area = document.getElementById('addArea').value.trim() || 'マイ登録';
+    const kw = parseInt(document.getElementById('addKw').value, 10) || 50;
+    const ports = parseInt(document.getElementById('addPorts').value, 10) || 1;
+    const cat = document.getElementById('addCat').value;
+    const note = document.getElementById('addNote').value.trim() || 'マイ登録スポット';
+    const latLonStr = document.getElementById('addLatLon').value.trim();
+
+    let lat = state.currentLat;
+    let lon = state.currentLon;
+    if (latLonStr && latLonStr.includes(',')) {
+      const parts = latLonStr.split(',');
+      lat = parseFloat(parts[0]) || lat;
+      lon = parseFloat(parts[1]) || lon;
+    }
+
+    const newSt = {
+      id: 'usr_' + Date.now(),
+      name, area, cat, kw, ports, is24h: true, lat, lon, note
+    };
+    state.customStations.unshift(newSt);
+    state.favorites.push(newSt.id);
+    saveState();
+    renderStations();
+
+    document.getElementById('addName').value = '';
+    document.getElementById('addNote').value = '';
+    alert(`「${name}」を追加しました！`);
+  }
+
+  function exportStationsJSON() {
+    const blob = new Blob([JSON.stringify(state, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'ev_chargers_backup.json';
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  function importStationsJSON(ev) {
+    const file = ev.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = e => {
+      try {
+        const data = JSON.parse(e.target.result);
+        state = { ...state, ...data };
+        saveState();
+        renderStations();
+        alert('スポットデータを復元しました。');
+      } catch (err) {
+        alert('JSONファイルの読み込みに失敗しました。');
+      }
+    };
+    reader.readAsText(file);
+  }
+
+  function escapeHtml(str) {
+    return String(str)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+  }
+
+  window.addEventListener('DOMContentLoaded', init);
+</script>
+</body>
+</html>
